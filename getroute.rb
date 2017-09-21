@@ -42,6 +42,37 @@ module NL
     :iarg2, :uint,
     :ops, :pointer
     # more but cbf here
+    class RouteGenerator
+      include Enumerable
+
+      def initialize(cache)
+        @cache = cache
+        @finish_line = cache.pointer
+        @current_pointer = cache[:next]
+      end
+
+      def each
+        while @current_pointer != @finish_line
+          route = NLROUTE::Route.new(@current_pointer)
+          @current_pointer = route[:next]
+          yield route
+        end
+      end
+    end
+
+    def routes
+      #routes = []
+      #route_ptr = self[:next]
+      #while true
+      #  route = NLROUTE::Route.new(route_ptr)
+      #  routes << route
+      #  break if route_ptr == self[:prev]
+      #  route_ptr = route[:next]
+      #end
+
+      #routes
+      RouteGenerator.new(self).to_a
+    end
   end
 
   #struct nl_addr
@@ -108,6 +139,7 @@ module NLROUTE
   end
 end
 
+# TODO memory management D:
 nl = NL.nl_socket_alloc
 NL.nl_connect(nl,NL::NETLINK_ROUTE)
 NL.nl_socket_disable_auto_ack(nl)
@@ -115,17 +147,11 @@ NL.nl_socket_disable_seq_check(nl)
 socket=NL.nl_socket_get_fd(nl)
 route_cache_ptr = FFI::MemoryPointer.new :pointer
 # AF_INET = 2
-puts NLROUTE.rtnl_route_alloc_cache(nl, 2, 0, route_cache_ptr)
+NLROUTE.rtnl_route_alloc_cache(nl, 2, 0, route_cache_ptr)
+# TODO modify reference counts to do it properly
 # then we iterate over route_cache?
 route_cache = NL::Cache.new(route_cache_ptr.read_pointer)
-routes = []
-route_ptr = route_cache[:next]
-while true
-  route = NLROUTE::Route.new(route_ptr)
-  routes << route
-  break if route_ptr == route_cache[:prev]
-  route_ptr = route[:next]
-end
+routes = route_cache.routes
 dests = routes.map {|route| NL::Address.new(route[:rt_dst]) }
 prefixes = dests.map {|dest| dest.read_uint8_from(:a_addr, 4).join(".") + "/" + dest[:a_prefixlen].to_s }
 gateways = routes.map {|route| NL::Address.new(route[:rt_gateway]) }
